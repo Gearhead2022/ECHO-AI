@@ -1,6 +1,7 @@
 import { ILLMProvider } from "./interfaces/ILLMProvider";
 import { OllamaProvider } from "./OllamaProvider";
 import { PiperProvider } from "../tts/PiperProvider";
+import { WhisperProvider } from "../stt/WhisperProvider";
 
 export class ProviderFactory {
 
@@ -24,6 +25,12 @@ export class ProviderFactory {
     static createTTS() {
 
         return new PiperProvider();
+
+    }
+
+    static createSTT() {
+
+        return new WhisperProvider();
 
     }
 

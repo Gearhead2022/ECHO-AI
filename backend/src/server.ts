@@ -4,6 +4,9 @@ import dotenv from "dotenv";
 import chatRoute from "./routes/chat.route";
 import conversationRoute from "./routes/conversation.route";
 import path from "path";
+import voiceRoute from "./routes/voice.route";
+import https from "https";
+import fs from "fs";
 
 dotenv.config();
 
@@ -24,6 +27,7 @@ app.use(
         path.join(process.cwd(), "public/audio")
     )
 );
+app.use("/voice", voiceRoute);
 
 app.get("/", (_, res) => {
     res.json({
@@ -36,8 +40,28 @@ app.use(
     conversationRoute
 );
 
-const PORT = process.env.PORT || 5005;
+const PORT = Number(process.env.PORT) || 5005
 
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+const httpsOptions = {
+    key: fs.readFileSync(
+        path.resolve(
+            process.cwd(),
+            "../frontend/certs/echo-key.pem"
+        )
+    ),
+    cert: fs.readFileSync(
+        path.resolve(
+            process.cwd(),
+            "../frontend/certs/echo-cert.pem"
+        )
+    ),
+};
+
+https.createServer(
+    httpsOptions,
+    app
+).listen(PORT, "0.0.0.0", () => {
+    console.log(
+        `Echo AI backend running on https://0.0.0.0:${PORT}`
+    );
 });
