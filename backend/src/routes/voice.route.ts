@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import { ProviderFactory } from "../ai/llm/ProviderFactory";
 import { AudioConverter } from "../ai/stt/AudioConverter";
+import { container } from "../core/container";
 
 const router = Router();
 
@@ -130,5 +131,106 @@ router.post(
         }
     }
 );
+
+router.post("/speak", async (req, res) => {
+    try {
+        const { text } = req.body;
+
+        if (!text?.trim()) {
+            return res.status(400).json({
+                success: false,
+                error: "Text is required",
+            });
+        }
+
+        const speechText = text
+            .trim()
+            .replace(
+                /[\p{Extended_Pictographic}\p{Emoji_Presentation}]/gu,
+                ""
+            )
+            .replace(/\s{2,}/g, " ")
+            .trim();
+
+        if (!speechText) {
+            console.log(
+                "🔇 Skipping non-speakable TTS request:",
+                text
+            );
+
+            return res.json({
+                success: true,
+                audio: null,
+                skipped: true,
+            });
+        }
+
+        console.log(
+            "🔊 TTS request:",
+            speechText
+        );
+
+        const audio = await container.ai.speak(
+            speechText
+        );
+
+        console.log("🔊 TTS generated URL:", audio);
+
+        // Convert /audio/filename.wav into the actual filesystem path
+        const filename = path.basename(audio);
+
+        const audioFilePath = path.join(
+            process.cwd(),
+            "public",
+            "audio",
+            filename
+        );
+
+        console.log("📁 TTS file path:", audioFilePath);
+        console.log(
+            "📦 TTS file exists:",
+            fs.existsSync(audioFilePath)
+        );
+
+        if (fs.existsSync(audioFilePath)) {
+            const stats = fs.statSync(audioFilePath);
+
+            console.log(
+                "📏 TTS file size:",
+                stats.size,
+                "bytes"
+            );
+
+            console.log(
+                "🕒 TTS file created:",
+                stats.birthtime
+            );
+        } else {
+            console.error(
+                "❌ TTS WAV DOES NOT EXIST:",
+                audioFilePath
+            );
+        }
+
+        return res.json({
+            success: true,
+            audio,
+        });
+
+    } catch (error) {
+        console.error(
+            "❌ TTS failed:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            error:
+                error instanceof Error
+                    ? error.message
+                    : "Speech generation failed",
+        });
+    }
+});
 
 export default router;

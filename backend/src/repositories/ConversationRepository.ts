@@ -1,4 +1,4 @@
-import { prisma } from "../config/prismaClient";
+import { prisma } from "../lib/prisma";
 
 export class ConversationRepository {
     async create(title = "New Chat") {
@@ -30,6 +30,25 @@ export class ConversationRepository {
         return prisma.conversation.findMany({
             orderBy: {
                 updatedAt: "desc",
+            },
+        });
+    }
+
+    async updateTitle(id: number, title: string) {
+        return prisma.conversation.update({
+            where: {
+                id,
+            },
+            data: {
+                title,
+            },
+        });
+    }
+
+    async delete(id: number) {
+        return prisma.conversation.delete({
+            where: {
+                id,
             },
         });
     }

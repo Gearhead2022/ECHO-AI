@@ -5,6 +5,16 @@ export async function chatController(
     req: Request,
     res: Response
 ) {
+
+    console.log("📨 /chat received:", req.body);
+    console.log(
+        "🔖 Echo version:",
+        req.headers["x-echo-version"]
+    );
+    console.log(
+        "🆔 Echo conversation:",
+        req.headers["x-echo-conversation"]
+    );
     try {
         const {
             conversationId,

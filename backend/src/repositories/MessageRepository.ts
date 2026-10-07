@@ -1,5 +1,5 @@
-import { MessageRole } from "@prisma/client";
-import { prisma } from "../config/prismaClient";
+import { MessageRole } from "../generated/prisma/client";
+import { prisma } from "../lib/prisma";
 import { ChatMessage } from "../ai/llm/interfaces/ILLMProvider";
 
 export class MessageRepository {
@@ -10,9 +10,7 @@ export class MessageRepository {
         content: string,
         audioUrl?: string
     ) {
-
         return prisma.message.create({
-
             data: {
                 conversationId,
                 role,
@@ -35,13 +33,15 @@ export class MessageRepository {
             },
         });
 
-        return messages.map((message) => ({
-            role:
-                message.role === MessageRole.USER
-                    ? "user"
-                    : "assistant",
+        return messages.map(
+            (message: typeof messages[number]) => ({
+                role:
+                    message.role === MessageRole.USER
+                        ? "user"
+                        : "assistant",
 
-            content: message.content,
-        }));
+                content: message.content,
+            })
+        );
     }
 }

@@ -7,6 +7,7 @@ import path from "path";
 import voiceRoute from "./routes/voice.route";
 import https from "https";
 import fs from "fs";
+import memoryRoute from "./routes/memory.route";
 
 dotenv.config();
 
@@ -40,19 +41,24 @@ app.use(
     conversationRoute
 );
 
+app.use(
+    "/memory",
+    memoryRoute
+);
+
 const PORT = Number(process.env.PORT) || 5005
 
 const httpsOptions = {
     key: fs.readFileSync(
         path.resolve(
             process.cwd(),
-            "../frontend/certs/echo-key.pem"
+            "../frontend/certs/echo-key-old.pem"
         )
     ),
     cert: fs.readFileSync(
         path.resolve(
             process.cwd(),
-            "../frontend/certs/echo-cert.pem"
+            "../frontend/certs/echo-cert-old.pem"
         )
     ),
 };

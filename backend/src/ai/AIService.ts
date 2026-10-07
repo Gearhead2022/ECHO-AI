@@ -18,14 +18,19 @@ export class AIService {
         );
     }
 
-    // async *chatStream(
-    //     messages: ChatMessage[],
-    //     options?: ChatOptions
-    // ) {
-    //     for await (const chunk of this.llm.chatStream(messages, options)) {
-    //         yield chunk;
-    //     }
-    // }
+    async *chatStream(
+        messages: ChatMessage[],
+        options?: ChatOptions
+    ) {
+        for await (
+            const chunk of this.llm.chatStream(
+                messages,
+                options
+            )
+        ) {
+            yield chunk;
+        }
+    }
 
     async speak(text: string) {
 

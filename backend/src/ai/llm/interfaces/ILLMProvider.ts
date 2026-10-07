@@ -25,9 +25,9 @@ export interface ILLMProvider {
         options?: ChatOptions
     ): Promise<ChatResponse>;
 
-    // chatStream(
-    //     messages: ChatMessage[],
-    //     options?: ChatOptions
-    // ): AsyncGenerator<string>;
+    chatStream(
+        messages: ChatMessage[],
+        options?: ChatOptions
+    ): AsyncGenerator<string>;
 
 }
