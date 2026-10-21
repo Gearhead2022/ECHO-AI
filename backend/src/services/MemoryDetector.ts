@@ -4,6 +4,10 @@ export interface DetectedMemory {
     category?: string;
 }
 
+export interface DetectedForget {
+    key: string;
+}
+
 export class MemoryDetector {
 
     detect(message: string): DetectedMemory | null {
@@ -15,12 +19,17 @@ export class MemoryDetector {
         }
 
         const patterns = [
-            /^remember that (.+?) is (.+)$/i,
-            /^remember (.+?) is (.+)$/i,
-            /^please remember that (.+?) is (.+)$/i,
-            /^please remember (.+?) is (.+)$/i,
-            /^don't forget that (.+?) is (.+)$/i,
-            /^dont forget that (.+?) is (.+)$/i,
+            // Explicit memory requests
+            /^(?:please\s+)?remember that (.+?) is (.+)$/i,
+            /^(?:please\s+)?remember (.+?) is (.+)$/i,
+            /^(?:please\s+)?don't forget that (.+?) is (.+)$/i,
+            /^(?:please\s+)?don't forget (.+?) is (.+)$/i,
+            /^(?:please\s+)?dont forget that (.+?) is (.+)$/i,
+            /^(?:please\s+)?dont forget (.+?) is (.+)$/i,
+
+            // Natural memory updates and corrections
+            /^(?:please\s+)?(?:my\s+)?(.+?) is now (.+)$/i,
+            /^(?:please\s+)?(?:my\s+)?(.+?) is (.+?) now$/i,
         ];
 
         for (const pattern of patterns) {
@@ -49,10 +58,14 @@ export class MemoryDetector {
         }
 
         const usePatterns = [
-            /^remember that I (?:use|uses) (.+)$/i,
-            /^remember I (?:use|uses) (.+)$/i,
-            /^please remember that I (?:use|uses) (.+)$/i,
-            /^please remember I (?:use|uses) (.+)$/i,
+            /^(?:please\s+)?remember that I (?:use|uses) (.+)$/i,
+            /^(?:please\s+)?remember I (?:use|uses) (.+)$/i,
+            /^(?:please\s+)?remember that I work with (.+)$/i,
+            /^(?:please\s+)?remember I work with (.+)$/i,
+            /^(?:please\s+)?remember that I'm building (.+)$/i,
+            /^(?:please\s+)?remember that I am building (.+)$/i,
+            /^(?:please\s+)?remember I'm building (.+)$/i,
+            /^(?:please\s+)?remember I am building (.+)$/i,
         ];
 
         for (const pattern of usePatterns) {
@@ -71,10 +84,67 @@ export class MemoryDetector {
                 return null;
             }
 
+            const normalizedText = text.toLowerCase();
+
+            if (normalizedText.includes("building")) {
+                return {
+                    key: "current_project",
+                    value,
+                    category: "technical",
+                };
+            }
+
+            if (normalizedText.includes("work with")) {
+                return {
+                    key: "works_with",
+                    value,
+                    category: "technical",
+                };
+            }
+
             return {
                 key: "uses",
                 value,
                 category: "technical",
+            };
+        }
+
+        return null;
+    }
+
+
+    detectForget(message: string): DetectedForget | null {
+        const text = message.trim();
+
+        if (!text) {
+            return null;
+        }
+
+        const patterns = [
+            /^(?:please\s+)?forget my (.+)$/i,
+            /^(?:please\s+)?forget (?:that )?my (.+)$/i,
+            /^(?:please\s+)?delete my (.+)$/i,
+            /^(?:please\s+)?remove my (.+)$/i,
+            /^(?:please\s+)?forget about my (.+)$/i,
+        ];
+
+        for (const pattern of patterns) {
+            const match = text.match(pattern);
+
+            if (!match) {
+                continue;
+            }
+
+            const rawKey = match[1]
+                .trim()
+                .replace(/[.!?]+$/, "");
+
+            if (!rawKey) {
+                return null;
+            }
+
+            return {
+                key: this.normalizeKey(rawKey),
             };
         }
 

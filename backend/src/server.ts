@@ -8,6 +8,7 @@ import voiceRoute from "./routes/voice.route";
 import https from "https";
 import fs from "fs";
 import memoryRoute from "./routes/memory.route";
+import { toolRegistry } from "./tools/ToolRegistry";
 
 dotenv.config();
 
@@ -45,6 +46,8 @@ app.use(
     "/memory",
     memoryRoute
 );
+
+// toolRegistry.register(calculatorTool);
 
 const PORT = Number(process.env.PORT) || 5005
 

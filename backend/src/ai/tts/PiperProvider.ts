@@ -4,6 +4,64 @@ import path from "path";
 
 import { ITTSProvider } from "./interfaces/ITTSProvider";
 
+function formatPathsForSpeech(text: string): string {
+    return text.replace(
+        /\b([A-Za-z]):\\([^"'<>|?*\r\n]*)/g,
+        (match, drive: string, remainder: string) => {
+            // Remove sentence-ending punctuation accidentally captured by the path.
+            const trailingPunctuation = remainder.match(/[.,;:!?]+$/)?.[0] ?? "";
+            const cleanPath = trailingPunctuation
+                ? remainder.slice(0, -trailingPunctuation.length)
+                : remainder;
+
+            const parts = cleanPath
+                .split("\\")
+                .filter(Boolean);
+
+            const spokenParts = parts.map((part: string, index: number) => {
+                // Speak common file extensions more clearly.
+                const extensionMatch = part.match(/^(.*)\.([a-zA-Z0-9]+)$/);
+
+                if (extensionMatch) {
+                    const [, filename, extension] = extensionMatch;
+
+                    const spokenExtension: Record<string, string> = {
+                        md: "M D",
+                        ts: "T S",
+                        tsx: "T S X",
+                        js: "J S",
+                        jsx: "J S X",
+                        json: "JSON",
+                        pdf: "P D F",
+                        txt: "T X T",
+                        html: "H T M L",
+                        css: "C S S",
+                        docx: "docx",
+                        doc: "doc",
+                        xlsx: "Excel file",
+                        xls: "Excel file",
+                        pptx: "PowerPoint file",
+                        ppt: "PowerPoint file",
+                    };
+
+                    const suffix =
+                        spokenExtension[extension.toLowerCase()] ??
+                        extension.split("").join(" ");
+
+                    return `${filename} dot ${suffix}`;
+                }
+
+                return index === parts.length - 1
+                    ? part
+                    : `${part} folder`;
+            });
+
+            return `${drive} drive, ${spokenParts.join(", ")}${trailingPunctuation}`;
+        }
+    );
+}
+
+
 export class PiperProvider implements ITTSProvider {
 
     async speak(text: string): Promise<string> {
@@ -30,7 +88,7 @@ export class PiperProvider implements ITTSProvider {
 
             // Clean text ONLY for speech.
             // The original text shown in ChatWindow remains unchanged.
-            const speechText = text
+            const speechText = formatPathsForSpeech(text
                 // Remove emojis
                 .replace(
                     /[\p{Extended_Pictographic}\p{Emoji_Presentation}]/gu,
@@ -58,8 +116,12 @@ export class PiperProvider implements ITTSProvider {
                 .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
 
                 // Clean excessive whitespace
-                .replace(/\s{2,}/g, " ")
+                .replace(/\s{2,}/g, " "))
+
                 .trim();
+
+            console.log("[TTS] Original text:", JSON.stringify(text));
+            console.log("[TTS] Speech text:", JSON.stringify(speechText));
 
             const piper = spawn(
                 process.env.PIPER_EXE!,

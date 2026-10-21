@@ -52,27 +52,53 @@ export async function chatStreamController(
             userMessage
         );
 
-        // 🧠 Detect explicit memory request
-        const detectedMemory =
-            memoryDetector.detect(userMessage);
 
-        if (detectedMemory) {
+        // 🧠 Detect requests to forget a memory first
+        const detectedForget =
+            memoryDetector.detectForget(userMessage);
 
-            await memoryService.remember(
-                detectedMemory.key,
-                detectedMemory.value,
-                detectedMemory.category
-            );
+        if (detectedForget) {
+            const deletedMemory =
+                await memoryService.forget(detectedForget.key);
 
             console.log(
-                "🧠 Memory saved:",
-                detectedMemory
+                deletedMemory
+                    ? "🗑️ Memory deleted:"
+                    : "⚠️ Memory not found:",
+                detectedForget.key
             );
+        } else {
+            // 🧠 Detect requests to save or update a memory
+            const detectedMemory =
+                memoryDetector.detect(userMessage);
+
+            if (detectedMemory) {
+                await memoryService.remember(
+                    detectedMemory.key,
+                    detectedMemory.value,
+                    detectedMemory.category
+                );
+
+                console.log(
+                    "🧠 Memory saved:",
+                    detectedMemory
+                );
+            }
         }
 
         // Load conversation history
         const history =
             await messageRepository.findByConversation(id);
+
+        const recentHistory =
+            history.slice(-10);
+
+        // const history = [
+        //     {
+        //         role: "user" as const,
+        //         content: userMessage,
+        //     },
+        // ];
 
         // Configure streaming response
         res.setHeader(
@@ -96,10 +122,14 @@ export async function chatStreamController(
 
         // Stream Qwen response
         for await (
-            const chunk of container.ai.chatStream(history)
+            const chunk
+            of container.ai.chatStreamWithTools(
+                recentHistory,
+                id,
+                userMessage
+            )
         ) {
             fullResponse += chunk;
-
             res.write(chunk);
         }
 
@@ -112,12 +142,9 @@ export async function chatStreamController(
 
         res.end();
 
-    } catch (error) {
 
-        console.error(
-            "Chat stream error:",
-            error
-        );
+    } catch (error) {
+        console.error("Chat stream error:", error);
 
         if (!res.headersSent) {
             return res.status(500).json({
@@ -126,6 +153,10 @@ export async function chatStreamController(
             });
         }
 
-        res.end();
+        // Tell the frontend that streaming failed after it began.
+        if (!res.destroyed && !res.writableEnded) {
+            res.write("\n__ECHO_STREAM_ERROR__");
+            res.end();
+        }
     }
 }

@@ -53,6 +53,8 @@ export async function chatService(
     const detectedMemory =
         memoryDetector.detect(userMessage);
 
+    console.log("🧠 Detected memory:", detectedMemory);
+
     if (detectedMemory) {
 
         await memoryService.remember(

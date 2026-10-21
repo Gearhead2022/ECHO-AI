@@ -3,6 +3,8 @@ import {
     ChatResponse,
     ILLMProvider,
     ChatOptions,
+    ToolCall,
+    ChatStreamEvent,
 } from "./interfaces/ILLMProvider";
 import { memoryService } from "../../services/memory.service";
 
@@ -86,9 +88,26 @@ const ECHO_SYSTEM_PROMPT = (memoryContext = "") => `
 
     ${memoryContext || "No long-term memories are currently available."}
 
-    Use these memories only when they are relevant to the conversation.
-    Do not mention the memory system or say that something was retrieved from memory.
-    Do not assume information that is not present in memory.
+    MEMORY ACCURACY RULES
+
+    * Treat the saved long-term memories above as the primary source of truth for the user's stored personal facts, preferences, tools, and ongoing projects.
+    * When a saved memory conflicts with an older statement in the conversation, prefer the saved memory as the user's current known information.
+    * Treat conversation history as context, not as proof that an older fact is still current.
+    * If the user explicitly provides a newer correction or update during the current conversation, use that newer information for the current response. Do not claim it has been permanently saved unless the memory system confirms it.
+    * If the user asks what you remember about them, answer using the saved memories that are actually available. Do not invent additional personal details.
+    * If a requested fact is not present in saved memories, you may use relevant conversation history when it clearly provides the answer. Otherwise, honestly say you do not know or do not have that information available.
+    * Never treat a guess, assumption, or inference as a confirmed personal fact.
+    * Do not combine unrelated memories into a new fact or change their meaning.
+    * Use only memories relevant to the current request. Do not unnecessarily repeat all saved information.
+    * If saved information is ambiguous or contradictory and cannot be resolved from a clear update, acknowledge the uncertainty instead of guessing.
+    * If the user asks you to forget something, do not claim that it was deleted unless the memory system confirms the deletion.
+
+    MEMORY RESPONSE STYLE
+
+    * Use remembered information naturally when it helps answer the user.
+    * Do not mention the memory system or say that information was retrieved from memory unless the user specifically asks how memory works.
+    * Keep simple memory answers short and direct.
+    * Distinguish between what the user explicitly told you and what you are merely inferring.
 
     IMPORTANT
 
@@ -97,6 +116,68 @@ const ECHO_SYSTEM_PROMPT = (memoryContext = "") => `
     Do not mention that you are following personality rules.
 
     You are Echo.
+    
+    CALCULATION AND TOOL USAGE RULES
+
+    Choose the most appropriate way to handle arithmetic based on the complexity of the request.
+
+    1. SIMPLE CALCULATIONS
+    For straightforward arithmetic that you can confidently solve, answer directly without calling the calculator tool.
+    Examples:
+    - "What is 2 + 2?" → Answer 4.
+    - "What is 10 times 5?" → Answer 50.
+    - "What is 100 minus 25?" → Answer 75.
+
+    
+    2. COMPLEX OR PRECISION-SENSITIVE CALCULATIONS
+
+    Prefer to answer simple arithmetic directly when you can confidently calculate the answer.
+
+    Use the calculator tool for calculations involving multiple dependent steps, including when the user asks you to:
+    - Calculate a total and then calculate a percentage of that total.
+    - Perform one operation and then use its result in another operation.
+    - Evaluate a long expression containing several operations.
+    - Perform calculations involving multiple decimal values or precision-sensitive results.
+
+    Also prefer the calculator for large or complicated calculations where mental arithmetic is more error-prone.
+
+    Examples:
+    - "What is 15% of 200?" → You may answer directly.
+    - "What is 18.75 times 46.8?" → Prefer the calculator.
+    - "Add 125, 275, and 450, then calculate 18% of the total." → Use the calculator.
+    - "Calculate 125 + 75, then multiply the result by 4." → Use the calculator.
+
+    For multi-step calculations, construct an expression that preserves the user's intended order of operations. Use parentheses when necessary.
+
+    Do not call the calculator unnecessarily for simple questions, but do not avoid it when the request involves multiple dependent calculations.
+
+    These are guidelines, not rigid rules. Use judgment based on the actual request.
+
+    3. PRESERVE THE USER'S INTENDED OPERATION ORDER
+    When using the calculator, preserve the exact sequence of operations requested by the user.
+    Words such as "then multiply the result", "then add", "after that", and "use that result" indicate that a later operation may depend on an earlier result.
+
+    Use parentheses whenever necessary to preserve the intended sequence.
+
+    Examples:
+    - "125 + 75, then multiply the result by 4" → (125 + 75) * 4
+    - "20 - 5, then divide the result by 3" → (20 - 5) / 3
+    - "10 times 5, then add 7" → (10 * 5) + 7
+
+    Never change the requested sequence of operations.
+
+    4. TRUST SUCCESSFUL TOOL RESULTS
+    When the calculator tool returns a successful result, treat that result as authoritative.
+    - Report the actual numeric result returned by the tool.
+    - Do not independently recalculate, alter, reinterpret, or replace it.
+    - If another calculation is needed, use the appropriate previous result.
+    - If the tool returns an error, do not claim the calculation succeeded.
+
+    5. BE HONEST ABOUT TOOL USAGE
+    Never claim to have used the calculator unless a successful tool result confirms it.
+    Do not call the calculator unnecessarily for simple arithmetic.
+    Do not avoid the calculator when a calculation is complex enough that relying on mental arithmetic would be unreliable.
+
 `;
 
 
@@ -118,9 +199,25 @@ export class OllamaProvider implements ILLMProvider {
             throw new Error("OLLAMA_MODEL is not defined");
         }
 
-        const memoryContext = await memoryService.buildMemoryContext();
+        const latestUserMessage = [...messages]
+            .reverse()
+            .find((message) => message.role === "user")?.content ?? "";
+
+        const memoryContext = await memoryService.buildMemoryContext(
+            latestUserMessage
+        );
 
         console.log("🧠 Memory context:", memoryContext);
+
+        console.log(
+            "🛠️ TOOLS SENT TO OLLAMA:",
+            JSON.stringify(options?.tools, null, 2)
+        );
+
+        console.log(
+            "📨 MESSAGES SENT TO OLLAMA:",
+            JSON.stringify(messages, null, 2)
+        );
 
         const response = await fetch(`${url}/api/chat`, {
             method: "POST",
@@ -129,14 +226,51 @@ export class OllamaProvider implements ILLMProvider {
             },
             body: JSON.stringify({
                 model,
-                ...options,
                 messages: [
                     {
                         role: "system",
                         content: ECHO_SYSTEM_PROMPT(memoryContext),
+
                     },
-                    ...messages,
+                    ...messages.map((message) => ({
+                        role: message.role,
+                        content: message.content,
+                        ...(message.toolCallId && {
+                            tool_call_id:
+                                message.toolCallId,
+                        }),
+                        ...(message.toolCalls && {
+                            tool_calls:
+                                message.toolCalls.map(
+                                    (call) => ({
+                                        function: {
+                                            name: call.name,
+                                            arguments:
+                                                call.arguments,
+                                        },
+                                    })
+                                ),
+                        }),
+                    })),
                 ],
+                ...(options?.temperature !== undefined && {
+                    options: {
+                        temperature: options.temperature,
+                    },
+                }),
+                ...(options?.maxTokens !== undefined && {
+                    options: {
+                        num_predict: options.maxTokens,
+                    },
+                }), ...(options?.tools && {
+                    tools: options.tools.map((tool) => ({
+                        type: "function", function: {
+                            name: tool.name,
+                            description: tool.description,
+                            parameters: tool.parameters,
+                        },
+                    })),
+                }),
                 stream: false,
                 think: false,
             }),
@@ -148,38 +282,38 @@ export class OllamaProvider implements ILLMProvider {
 
         const data = await response.json();
 
-        // console.log("🧠 Ollama response keys:", Object.keys(data));
+        console.log(
+            "🧠 RAW OLLAMA RESPONSE:",
+            JSON.stringify(data, null, 2)
+        );
 
-        // console.log(
-        //     "🧠 Ollama message:",
-        //     JSON.stringify(data.message, null, 2)
-        // );
+        const toolCalls: ToolCall[] =
+            (data.message?.tool_calls ?? []).map(
+                (call: {
+                    function: {
+                        name: string;
+                        arguments: Record<string, unknown>;
 
-        // console.log(
-        //     "🧠 Response content length:",
-        //     data.message?.content?.length
-        // );
-
-        // console.log("🧠 Ollama timing:", {
-        //     total: data.total_duration,
-        //     load: data.load_duration,
-        //     promptEval: data.prompt_eval_duration,
-        //     eval: data.eval_duration,
-        //     promptTokens: data.prompt_eval_count,
-        //     cachedTokens: data.prompt_eval_cached_count,
-        //     outputTokens: data.eval_count,
-        // });
-
+                    };
+                }, index: number) => ({
+                    id: `ollama-tool-call-${index}`,
+                    name: call.function.name,
+                    arguments:
+                        call.function.arguments,
+                }));
 
         return {
             text: data.message.content,
+            ...(toolCalls.length > 0 && {
+                toolCalls,
+            }),
         };
     }
 
     async *chatStream(
         messages: ChatMessage[],
         options?: ChatOptions
-    ): AsyncGenerator<string> {
+    ): AsyncGenerator<ChatStreamEvent> {
 
         const url = process.env.OLLAMA_URL;
         const model = process.env.OLLAMA_MODEL;
@@ -245,11 +379,38 @@ export class OllamaProvider implements ILLMProvider {
                 try {
                     const json = JSON.parse(line);
                     const chunk = json.message?.content;
+
                     if (chunk) {
-                        yield chunk;
+                        yield {
+                            type: "text",
+                            text: chunk,
+                        };
+                    }
+
+                    const toolCalls =
+                        json.message?.tool_calls;
+
+                    if (toolCalls) {
+                        for (const [index, call] of toolCalls.entries()) {
+
+                            yield {
+                                type: "tool_call",
+                                toolCall: {
+                                    id: `ollama-tool-call-${index}`,
+                                    name: call.function.name,
+                                    arguments:
+                                        call.function.arguments,
+                                },
+                            };
+                        }
                     }
 
                     if (json.done) {
+
+                        yield {
+                            type: "done",
+                        };
+
                         return;
                     }
 
