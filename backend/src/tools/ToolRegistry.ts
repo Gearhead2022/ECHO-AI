@@ -1,6 +1,8 @@
 import { Tool } from "./Tool";
 import { calculatorTool } from "./calculator.tool";
 import { searchFilesTool } from "./search_files.tool";
+import { dateTimeTool } from "./date_time.tool";
+import { readFileTool } from "./read_file.tool";
 
 export class ToolRegistry {
 
@@ -41,3 +43,5 @@ export const toolRegistry =
 
 toolRegistry.register(calculatorTool);
 toolRegistry.register(searchFilesTool);
+toolRegistry.register(dateTimeTool);
+toolRegistry.register(readFileTool);

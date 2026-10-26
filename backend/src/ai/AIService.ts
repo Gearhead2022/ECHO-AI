@@ -99,105 +99,78 @@ export class AIService {
         );
     }
 
+
     async *chatStreamWithTools(
         messages: ChatMessage[],
         conversationId: number,
         userMessage: string,
         options?: ChatOptions
-    ) {
-        const toolDefinitions =
-            toolRegistry.getDefinitions();
-
+    ): AsyncGenerator<string> {
+        const toolDefinitions = toolRegistry.getDefinitions();
         let currentMessages = [...messages];
 
-        console.log("🔵 USING chatStreamWithTools()");
+        for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+            let roundText = "";
+            const toolCalls: NonNullable<ChatMessage["toolCalls"]> = [];
 
-        for (
-            let round = 0;
-            round < MAX_TOOL_ROUNDS;
-            round++
-        ) {
+            for await (const event of this.llm.chatStream(
+                currentMessages,
+                {
+                    ...options,
+                    tools: toolDefinitions,
+                }
+            )) {
+                if (event.type === "text") {
+                    const chunk = event.text ?? "";
 
-            console.log("🟡 BEFORE LLM CHAT");
-
-            const response =
-                await this.llm.chat(
-                    currentMessages,
-                    {
-                        ...options,
-                        tools: toolDefinitions,
+                    if (chunk) {
+                        roundText += chunk;
+                        yield chunk;
                     }
-                );
-
-            console.log("🟠 AFTER LLM CHAT");
-
-            console.log(
-                "🧪 TOOL RESPONSE:",
-                JSON.stringify(response, null, 2)
-            );
-
-            // No tool call means Echo is ready
-            // to give the final answer.
-            if (
-                !response.toolCalls ||
-                response.toolCalls.length === 0
-            ) {
-
-                if (response.text) {
-                    yield response.text;
                 }
 
+                if (event.type === "tool_call" && event.toolCall) {
+                    toolCalls.push(event.toolCall);
+                }
+            }
+
+            // No tools requested: the assistant response is complete.
+            if (toolCalls.length === 0) {
                 return;
             }
 
-            const assistantMessage: ChatMessage = {
+            // Preserve the assistant's tool request in the conversation.
+            currentMessages.push({
                 role: "assistant",
-                content: response.text,
-                toolCalls: response.toolCalls,
-            };
+                content: roundText,
+                toolCalls,
+            });
 
-            currentMessages.push(
-                assistantMessage
-            );
-
+            // Execute requested tools and return their results to the model.
             const toolMessages: ChatMessage[] = [];
 
-            for (const toolCall of response.toolCalls) {
-
-                console.log(
-                    `[Tool Round ${round + 1}]`,
+            for (const toolCall of toolCalls) {
+                const result = await toolService.execute(
                     toolCall.name,
-                    toolCall.arguments
+                    toolCall.arguments,
+                    {
+                        conversationId,
+                        userMessage,
+                    }
                 );
-
-                const result =
-                    await toolService.execute(
-                        toolCall.name,
-                        toolCall.arguments,
-                        {
-                            conversationId,
-                            userMessage,
-                        }
-                    );
 
                 toolMessages.push({
                     role: "tool",
                     content: JSON.stringify({
-                        success:
-                            result.success,
-                        result:
-                            result.result,
-                        error:
-                            result.error,
+                        success: result.success,
+                        result: result.result,
+                        error: result.error,
                     }),
-                    toolCallId:
-                        toolCall.id,
+                    toolCallId: toolCall.id,
                 });
             }
 
-            currentMessages.push(
-                ...toolMessages
-            );
+            currentMessages.push(...toolMessages);
         }
 
         throw new Error(

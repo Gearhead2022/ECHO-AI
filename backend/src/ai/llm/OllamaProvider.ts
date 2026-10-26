@@ -219,6 +219,15 @@ export class OllamaProvider implements ILLMProvider {
             JSON.stringify(messages, null, 2)
         );
 
+        const ollamaOptions = {
+            ...(options?.temperature !== undefined && {
+                temperature: options.temperature,
+            }),
+            ...(options?.maxTokens !== undefined && {
+                num_predict: options.maxTokens,
+            }),
+        };
+
         const response = await fetch(`${url}/api/chat`, {
             method: "POST",
             headers: {
@@ -253,15 +262,9 @@ export class OllamaProvider implements ILLMProvider {
                         }),
                     })),
                 ],
-                ...(options?.temperature !== undefined && {
-                    options: {
-                        temperature: options.temperature,
-                    },
-                }),
-                ...(options?.maxTokens !== undefined && {
-                    options: {
-                        num_predict: options.maxTokens,
-                    },
+                ...(Object.keys(ollamaOptions).length > 0 && {
+                    options: ollamaOptions,
+
                 }), ...(options?.tools && {
                     tools: options.tools.map((tool) => ({
                         type: "function", function: {
@@ -330,6 +333,15 @@ export class OllamaProvider implements ILLMProvider {
 
         console.log("🧠 Memory context:", memoryContext);
 
+        const ollamaOptions = {
+            ...(options?.temperature !== undefined && {
+                temperature: options.temperature,
+            }),
+            ...(options?.maxTokens !== undefined && {
+                num_predict: options.maxTokens,
+            }),
+        };
+
         const response = await fetch(`${url}/api/chat`, {
             method: "POST",
             headers: {
@@ -337,14 +349,40 @@ export class OllamaProvider implements ILLMProvider {
             },
             body: JSON.stringify({
                 model,
-                ...options,
                 messages: [
                     {
                         role: "system",
                         content: ECHO_SYSTEM_PROMPT(memoryContext),
                     },
-                    ...messages,
+                    ...messages.map((message) => ({
+                        role: message.role,
+                        content: message.content,
+                        ...(message.toolCallId && {
+                            tool_call_id: message.toolCallId,
+                        }),
+                        ...(message.toolCalls && {
+                            tool_calls: message.toolCalls.map((call) => ({
+                                function: {
+                                    name: call.name,
+                                    arguments: call.arguments,
+                                },
+                            })),
+                        }),
+                    })),
                 ],
+                ...(Object.keys(ollamaOptions).length > 0 && {
+                    options: ollamaOptions,
+                }),
+                ...(options?.tools && {
+                    tools: options.tools.map((tool) => ({
+                        type: "function",
+                        function: {
+                            name: tool.name,
+                            description: tool.description,
+                            parameters: tool.parameters,
+                        },
+                    })),
+                }),
                 stream: true,
                 think: false,
             }),
